@@ -440,24 +440,19 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
                 except Exception as e:
                     st.warning(f"Nie udało się zapisać do Google Sheets: {e}")
 
-# ---------- PANEL „PORÓWNANIE ZDAŃ” — ZAWSZE NA WIERZCHU, Z PAMIĘCIĄ USTAWIEŃ ----------
+# ---------- PANEL „PORÓWNANIE ZDAŃ” — STAŁE KONTROLKI (bez przypisań do session_state) ----------
 st.markdown("### 🔎 Porównanie zdań (zdanie-za-zdaniem)")
 
 mode_col, thr_col, chk_col = st.columns([1.2, 1, 1])
-with mode_col:
-    st.session_state.sent_mode = st.radio(
-        "Tryb dopasowania zdań",
-        options=["Najlepsze dopasowanie", "1:1 alignment"],
-        key="sent_mode",
-        help="‘Najlepsze’ wybiera dla każdego zdania studenta najlepiej pasujące zdanie z całej puli wzorców.\n‘1:1’ łączy zdanie i-te studenta ze zdaniem i-tym pierwszego wzorca."
-    )
-with thr_col:
-    st.session_state.low_thr = st.slider("Próg filtrowania (%)", 0, 100, value=st.session_state.low_thr, step=5,
-                                         key="low_thr",
-                                         help="Pokaż tylko zdania poniżej tego progu.")
-with chk_col:
-    st.session_state.show_only_low = st.checkbox("Pokaż tylko poniżej progu", value=st.session_state.show_only_low,
-                                                 key="show_only_low")
+sent_mode = st.radio(
+    "Tryb dopasowania zdań",
+    options=["Najlepsze dopasowanie", "1:1 alignment"],
+    key="sent_mode",
+    help="‘Najlepsze’ wybiera dla każdego zdania studenta najlepiej pasujące zdanie z całej puli wzorców.\n‘1:1’ łączy zdanie i-te studenta ze zdaniem i-tym pierwszego wzorca."
+)
+low_thr = st.slider("Próg filtrowania (%)", 0, 100, value=st.session_state.low_thr, step=5, key="low_thr",
+                    help="Pokaż tylko zdania poniżej tego progu.")
+show_only_low = st.checkbox("Pokaż tylko poniżej progu", value=st.session_state.show_only_low, key="show_only_low")
 
 # Dane do porównań: bierzemy „ostatnie” z sesji
 last_student = st.session_state.last_student_translation
@@ -467,7 +462,7 @@ last_sem     = st.session_state.last_use_semantics
 if not last_student or not last_refs:
     st.info("Najpierw kliknij „Oceń tłumaczenie”, aby zasilić panel danymi.")
 else:
-    if st.session_state.sent_mode == "1:1 alignment":
+    if sent_mode == "1:1 alignment":
         rows = sent_level_alignment_1to1(last_student, last_refs, last_sem)
     else:
         rows = sent_level_alignment_best(last_student, last_refs, last_sem)
@@ -477,14 +472,14 @@ else:
         lit_pct = int(round(r["lit"] * 100)) if r["lit"] is not None else None
         sem_pct = int(round(r["sem"] * 100)) if r["sem"] is not None else None
         shown = sem_pct if sem_pct is not None else lit_pct
-        if st.session_state.show_only_low and shown is not None and shown >= st.session_state.low_thr:
+        if show_only_low and shown is not None and shown >= low_thr:
             continue
         hint = short_hint_for_sentence(lit_pct if lit_pct is not None else 0,
                                        sem_pct if sem_pct is not None else None)
         table_rows.append({
             "Zdanie #": r["idx"],
             "Zdanie studenta": r["stud"],
-            "Najlepszy wzorzec (zdanie)" if st.session_state.sent_mode != "1:1 alignment" else "Wzorzec (1:1)": r["ref"],
+            "Najlepszy wzorzec (zdanie)" if sent_mode != "1:1 alignment" else "Wzorzec (1:1)": r["ref"],
             "Literalnie (%)": lit_pct,
             "Semantycznie (%)": sem_pct if sem_pct is not None else "",
             "Różnice (skrót)": r["diff"],
