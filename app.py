@@ -2,6 +2,28 @@ import streamlit as st
 import difflib
 import pandas as pd
 from datetime import datetime
+import numpy as np
+from sentence_transformers import SentenceTransformer
+
+@st.cache_resource
+def load_st_model():
+    # Lekki, szybki i bardzo dobry do porównań zdań (~22MB)
+    return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
+    a = a / (np.linalg.norm(a) + 1e-12)
+    b = b / (np.linalg.norm(b) + 1e-12)
+    return float(np.dot(a, b))
+
+def best_semantic_match(student_text: str, refs: list[str]):
+    """Zwraca (best_score (0–1), best_ref)."""
+    model = load_st_model()
+    emb_student = model.encode(student_text, normalize_embeddings=True)
+    emb_refs = model.encode(refs, normalize_embeddings=True)
+    sims = [float(np.dot(emb_student, r)) for r in emb_refs]
+    idx = int(np.argmax(sims))
+    return sims[idx], refs[idx]
+
 
 # ---------- USTAWIENIA STRONY ----------
 st.set_page_config(page_title="Ocena tłumaczeń – wersja nauczycielska", layout="wide")
