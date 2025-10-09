@@ -17,14 +17,37 @@ except Exception:
 # ---------- USTAWIENIA STRONY ----------
 st.set_page_config(page_title="Ocena tłumaczeń – wersja nauczycielska", layout="wide")
 
+# ---------- INICJALIZACJA STANU (PAMIĘĆ UI) ----------
+def _init_state():
+    ss = st.session_state
+    ss.setdefault("sent_mode", "Najlepsze dopasowanie")  # albo "1:1 alignment"
+    ss.setdefault("low_thr", 70)                         # próg filtrowania zdań (%)
+    ss.setdefault("show_only_low", True)                 # pokazywać tylko poniżej progu
+    # pamiętane „ostatnie” dane do porównania zdań
+    ss.setdefault("last_student_translation", "")
+    ss.setdefault("last_refs_list", [])
+    ss.setdefault("last_use_semantics", True)
+    # wynikowa tabela sesji
+    if "results_df" not in ss:
+        ss.results_df = pd.DataFrame(
+            columns=[
+                "Data","Student","Zadanie/Plik",
+                "Podobieństwo_literalne","Podobieństwo_semantyczne","Wynik_łączny",
+                "Wierność(1-5)","Język(1-5)","Styl(1-5)",
+                "W_auto","W_wierność","W_język","W_styl",
+                "Progi(%): 5.0","4.5","4.0","3.5","3.0",
+                "Wynik_finalny_%","Ocena"
+            ]
+        )
+
+_init_state()
+
 # ---------- MODEL SEMANTYCZNY ----------
 @st.cache_resource
 def load_st_model():
-    # Lekki model do porównań zdań (ok. 22 MB)
-    return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")  # ~22 MB
 
 def best_semantic_match(student_text: str, refs: list[str]):
-    """Zwraca (best_score (0..1), best_ref)."""
     model = load_st_model()
     emb_student = model.encode(student_text, normalize_embeddings=True)
     emb_refs = model.encode(refs, normalize_embeddings=True)
@@ -34,7 +57,6 @@ def best_semantic_match(student_text: str, refs: list[str]):
 
 # ---------- POMOCNICZE (tekst globalnie) ----------
 def compute_best_match(student_text: str, refs: list[str]):
-    """Literalne podobieństwo; zwraca (best_score, best_ref, diff_preview_text)."""
     best_ref, best_score = "", 0.0
     for ref in refs:
         score = difflib.SequenceMatcher(None, student_text.lower(), ref.lower()).ratio()
@@ -45,19 +67,6 @@ def compute_best_match(student_text: str, refs: list[str]):
         diff_tokens = diff_tokens[:200] + ["..."]
     diff_preview = " ".join(diff_tokens)
     return best_score, best_ref, diff_preview
-
-def ensure_results_df():
-    if "results_df" not in st.session_state:
-        st.session_state.results_df = pd.DataFrame(
-            columns=[
-                "Data","Student","Zadanie/Plik",
-                "Podobieństwo_literalne","Podobieństwo_semantyczne","Wynik_łączny",
-                "Wierność(1-5)","Język(1-5)","Styl(1-5)",
-                "W_auto","W_wierność","W_język","W_styl",
-                "Progi(%): 5.0","4.5","4.0","3.5","3.0",
-                "Wynik_finalny_%","Ocena"
-            ]
-        )
 
 def grade_from_thresholds(pct: float, th_5, th_45, th_40, th_35, th_30) -> str:
     if pct >= th_5:  return "5.0"
@@ -143,7 +152,7 @@ def generate_feedback(sim_pct: float, faith_pct: float, lang_pct: float, style_p
         _comment_from_templates("lang",  lang_pct),
         _comment_from_templates("style", style_pct),
     ]
-    weakest_label, weakest_score = min(
+    weakest_label, _ = min(
         [("wierność", faith_pct), ("język", lang_pct), ("styl", style_pct), ("similarity", sim_pct)],
         key=lambda x: x[1]
     )
@@ -191,7 +200,6 @@ def _best_semantic(ss: str, pool_ref_sents: list[str]):
     return sims[k], pool_ref_sents[k]
 
 def sent_level_alignment_best(student_text: str, refs_list: list[str], use_semantics: bool):
-    """Dla każdego zdania studenta: najlepszy wzorzec z całej puli zdań referencyjnych."""
     pool_ref_sents = []
     for ref in refs_list:
         for rs in split_sentences(ref):
@@ -215,18 +223,10 @@ def sent_level_alignment_best(student_text: str, refs_list: list[str], use_seman
         diff_preview = " ".join(diff_tokens)
         shown_ref = best_sem_ref if (use_semantics and best_sem_ref) else best_lit_ref
 
-        rows.append({
-            "idx": i,
-            "stud": ss,
-            "ref": shown_ref,
-            "lit": best_lit,        # 0..1
-            "sem": best_sem,        # 0..1 lub None
-            "diff": diff_preview,
-        })
+        rows.append({"idx": i, "stud": ss, "ref": shown_ref, "lit": best_lit, "sem": best_sem, "diff": diff_preview})
     return rows
 
 def sent_level_alignment_1to1(student_text: str, refs_list: list[str], use_semantics: bool):
-    """Parowanie 1:1 wg kolejności zdań: zdanie i-te studenta ↔ zdanie i-te z pierwszego wzorca."""
     primary_ref = refs_list[0] if refs_list else ""
     stud_sents = split_sentences(student_text)
     ref_sents  = split_sentences(primary_ref)
@@ -251,25 +251,14 @@ def sent_level_alignment_1to1(student_text: str, refs_list: list[str], use_seman
             diff_tokens = diff_tokens[:120] + ["..."]
         diff_preview = " ".join(diff_tokens)
 
-        rows.append({
-            "idx": i,
-            "stud": ss,
-            "ref": rs,
-            "lit": best_lit,
-            "sem": best_sem,
-            "diff": diff_preview,
-        })
+        rows.append({"idx": i, "stud": ss, "ref": rs, "lit": best_lit, "sem": best_sem, "diff": diff_preview})
     return rows
 
 def short_hint_for_sentence(lit_pct: float, sem_pct: float) -> str:
-    """Krótka wskazówka dla zdań o niskich wynikach."""
     s = sem_pct if sem_pct is not None else lit_pct
-    if s >= 80:
-        return "OK – zgodność wysoka."
-    if s >= 70:
-        return "Drobne rozbieżności – doprecyzuj szczegóły."
-    if s >= 60:
-        return "Rozważ przeformułowanie fragmentu lub sprawdź sens względem źródła."
+    if s >= 80: return "OK – zgodność wysoka."
+    if s >= 70: return "Drobne rozbieżności – doprecyzuj szczegóły."
+    if s >= 60: return "Rozważ przeformułowanie fragmentu lub sprawdź sens względem źródła."
     return "Niska zgodność – porównaj ze źródłem, uprość składnię i doprecyzuj słownictwo."
 
 # ---------- SIDEBAR ----------
@@ -283,6 +272,9 @@ with st.sidebar:
     )
     st.caption("Similarity = miks semantyki i dopasowania literalnego. Wagi i progi ustawisz niżej.")
     st.markdown("---")
+    st.markdown("#### Zapisywanie wyników")
+    overwrite_mode = st.toggle("Nadpisuj istniejący wpis (Student+Zadanie)", value=True,
+                               help="Jeśli włączone: nowy wynik dla tego samego Studenta i Zadania zastąpi poprzedni rekord w tabeli sesji.")
     st.markdown("#### Google Sheets (opcjonalnie)")
     st.caption("Działa, jeśli skonfigurujesz sekrety w Streamlit Cloud (service account + sheet_id).")
     use_gsheets = st.toggle("Włącz zapis do Google Sheets", value=False)
@@ -332,20 +324,18 @@ with cols[3]: th_35 = st.number_input("3.5 od (%)", 0.0, 100.0, 60.0, 1.0)
 with cols[4]: th_30 = st.number_input("3.0 od (%)", 0.0, 100.0, 50.0, 1.0)
 st.caption("Upewnij się, że progi maleją: 5.0 ≥ 4.5 ≥ 4.0 ≥ 3.5 ≥ 3.0")
 
-# ---------- PRZYCISK ----------
+# ---------- PRZYCISK: ANALIZA GLOBALNA + ZAPAMIĘTANIE DO SESJI ----------
 if st.button("🔎 Oceń tłumaczenie", type="primary"):
     if not student_translation.strip():
         st.error("Wprowadź tłumaczenie studenta.")
     elif not reference_translations.strip():
         st.error("Wprowadź co najmniej jedno tłumaczenie wzorcowe.")
     else:
-        # Lista wzorców (puste linie rozdzielają tłumaczenia)
         raw = reference_translations.replace("\r\n", "\n")
         refs_list = [blk.strip() for blk in raw.split("\n\n") if blk.strip()]
         if len(refs_list) == 1 and "\n" in refs_list[0]:
             refs_list = [r.strip() for r in raw.split("\n") if r.strip()]
 
-        # Podobieństwo globalne
         lit_sim, lit_best_ref, diff_preview = compute_best_match(student_translation, refs_list)
         if use_semantics:
             sem_sim, sem_best_ref = best_semantic_match(student_translation, refs_list)
@@ -354,7 +344,6 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
         display_best_ref = sem_best_ref if (use_semantics and sem_best_ref) else lit_best_ref
         combined_similarity = (sem_weight_mix * sem_sim + (1 - sem_weight_mix) * lit_sim) if use_semantics else lit_sim
 
-        # Prezentacja metryk globalnych
         st.success("Analiza zakończona.")
         st.markdown("#### Najbliższe tłumaczenie wzorcowe")
         st.write(display_best_ref if display_best_ref else "—")
@@ -365,89 +354,20 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
         with st.expander("Podgląd różnic (skrót – wobec wzorca literalnego)"):
             st.code(diff_preview)
 
-        # ---------- PANEL PORÓWNANIA ZDAŃ ----------
-        st.markdown("### 🔎 Porównanie zdań (zdanie-za-zdaniem)")
-        mode_col, thr_col, chk_col = st.columns([1.2, 1, 1])
-        with mode_col:
-            sent_mode = st.radio(
-                "Tryb dopasowania zdań",
-                options=["Najlepsze dopasowanie", "1:1 alignment"],
-                help="‘Najlepsze’ wybiera dla każdego zdania studenta najlepiej pasujące zdanie z całej puli wzorców.\n‘1:1’ łączy zdanie i-te studenta ze zdaniem i-tym pierwszego wzorca."
-            )
-        with thr_col:
-            low_thr = st.slider("Próg filtrowania (%)", 0, 100, 70, 5, help="Pokaż tylko zdania poniżej tego progu.")
-        with chk_col:
-            show_only_low = st.checkbox("Pokaż tylko poniżej progu", value=True)
-
-        # Oblicz wiersze porównań
-        if sent_mode == "1:1 alignment":
-            rows = sent_level_alignment_1to1(student_translation, refs_list, use_semantics)
-        else:
-            rows = sent_level_alignment_best(student_translation, refs_list, use_semantics)
-
-        # Zbuduj tabelę + kolorowanie i komentarze per zdanie
-        table_rows = []
-        for r in rows:
-            lit_pct = int(round(r["lit"] * 100)) if r["lit"] is not None else None
-            sem_pct = int(round(r["sem"] * 100)) if r["sem"] is not None else None
-            shown = sem_pct if sem_pct is not None else lit_pct
-            if show_only_low and shown is not None and shown >= low_thr:
-                continue
-            hint = short_hint_for_sentence(lit_pct if lit_pct is not None else 0,
-                                           sem_pct if sem_pct is not None else None)
-            table_rows.append({
-                "Zdanie #": r["idx"],
-                "Zdanie studenta": r["stud"],
-                "Najlepszy wzorzec (zdanie)" if sent_mode!="1:1 alignment" else "Wzorzec (1:1)": r["ref"],
-                "Literalnie (%)": lit_pct,
-                "Semantycznie (%)": sem_pct if sem_pct is not None else "",
-                "Różnice (skrót)": r["diff"],
-                "Wskazówka": hint,
-            })
-
-        if not table_rows:
-            st.info("Brak zdań do wyświetlenia przy wybranych filtrach/trybie.")
-        else:
-            df_sent = pd.DataFrame(table_rows)
-
-            # Funkcja kolorująca komórki wg progów
-            def color_thresholds(val):
-                if val == "" or pd.isna(val):
-                    return ""
-                try:
-                    v = float(val)
-                except:
-                    return ""
-                if v >= 80:
-                    return "background-color: #e6ffe6"  # zielonkawe
-                if v >= 60:
-                    return "background-color: #fff9cc"  # żółtawe
-                return "background-color: #ffe6e6"      # czerwonawe
-
-            # Styler – kolorujemy dwie kolumny procentowe
-            styled = df_sent.style.applymap(color_thresholds, subset=["Literalnie (%)", "Semantycznie (%)"])
-            st.dataframe(styled, use_container_width=True)
-
-        # ---------- HINTY OGÓLNE (miękkie) ----------
+        # HINTY OGÓLNE
         issues = []
         text_lower = student_translation.lower()
         refs_joined_lower = " ".join(refs_list).lower()
-        if "since" in text_lower and "for" in refs_joined_lower:
-            issues.append("Możliwe nadużycie 'since' dla okresu czasu – rozważ 'for'.")
-        if "make a photo" in text_lower:
-            issues.append("Kolokacja: zwykle 'take a photo', nie 'make a photo'.")
-        if "i have" in text_lower and "years old" in text_lower:
-            issues.append("Kalka: 'I am X years old', nie 'I have X years old'.")
+        if "since" in text_lower and "for" in refs_joined_lower: issues.append("Możliwe nadużycie 'since' dla okresu czasu – rozważ 'for'.")
+        if "make a photo" in text_lower: issues.append("Kolokacja: zwykle 'take a photo', nie 'make a photo'.")
+        if "i have" in text_lower and "years old" in text_lower: issues.append("Kalka: 'I am X years old', nie 'I have X years old'.")
         if issues:
             st.markdown("#### Potencjalne kwestie do sprawdzenia (ogólne)")
-            for it in issues:
-                st.write(f"- {it}")
+            for it in issues: st.write(f"- {it}")
 
-        # ---------- OCENA KOŃCOWA ----------
-        # Wagi → normalizacja
+        # OCENA KOŃCOWA
         w_sum = max(w_auto + w_faith + w_lang + w_style, 1e-9)
         wn_auto, wn_faith, wn_lang, wn_style = w_auto/w_sum, w_faith/w_sum, w_lang/w_sum, w_style/w_sum
-        # Skale (0..1)
         faith_norm = faithfulness / 5.0
         lang_norm  = language_quality / 5.0
         style_norm = style / 5.0
@@ -455,7 +375,6 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
         final_pct = float(final_0_1 * 100.0)
         final_grade = grade_from_thresholds(final_pct, th_5, th_45, th_40, th_35, th_30)
 
-        # Komentarz łączny zależny od % w sekcjach
         sim_pct = combined_similarity * 100.0
         faith_pct = faith_norm * 100.0
         lang_pct  = lang_norm  * 100.0
@@ -475,8 +394,7 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
         st.write(f"**{lead}**")
         st.write(final_comment)
 
-        # ---------- ZAPIS WYNIKU DO TABELI (SESJA) ----------
-        ensure_results_df()
+        # ZAPIS DO SESJI (z nadpisywaniem Student+Zadanie)
         new_row = {
             "Data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "Student": student_name or "—",
@@ -489,16 +407,21 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
             "Progi(%): 5.0": th_5, "4.5": th_45, "4.0": th_40, "3.5": th_35, "3.0": th_30,
             "Wynik_finalny_%": round(final_pct, 1), "Ocena": final_grade,
         }
-        st.session_state.results_df = pd.concat(
-            [st.session_state.get("results_df", pd.DataFrame(columns=list(new_row.keys()))),
-             pd.DataFrame([new_row])],
-            ignore_index=True
-        )
+        df = st.session_state.results_df
+        if overwrite_mode:
+            mask = (df["Student"] == new_row["Student"]) & (df["Zadanie/Plik"] == new_row["Zadanie/Plik"])
+            df = df[~mask]
+        st.session_state.results_df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
-        # (Opcjonalnie) Zapis do Google Sheets
+        # ZAPAMIĘTAJ „OSTATNIE” DANE DO PANELU ZDAŃ
+        st.session_state.last_student_translation = student_translation
+        st.session_state.last_refs_list = refs_list
+        st.session_state.last_use_semantics = use_semantics
+
+        # (Opcjonalnie) GSheets – dopisuje zawsze
         if use_gsheets:
             if not GS_AVAILABLE:
-                st.warning("Brak bibliotek Google Sheets. Sprawdź requirements.txt (gspread, google-auth).")
+                st.warning("Brak bibliotek Google Sheets. Sprawdź requirements (gspread, google-auth).")
             else:
                 try:
                     row_for_gs = [
@@ -509,31 +432,100 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
                         new_row["Progi(%): 5.0"], new_row["4.5"], new_row["4.0"], new_row["3.5"], new_row["3.0"],
                         new_row["Wynik_finalny_%"], new_row["Ocena"],
                     ]
-                    gs_append_row(row_for_gs)
+                    gs_client, sheet_id = gs_get_client_from_secrets()
+                    if gs_client is None: raise RuntimeError("Brak sekretnych poświadczeń w Streamlit.")
+                    sh = gs_client.open_by_key(sheet_id); ws = sh.sheet1
+                    ws.append_row(row_for_gs, value_input_option="USER_ENTERED")
                     st.success("Zapisano wiersz do Google Sheets ✅")
                 except Exception as e:
                     st.warning(f"Nie udało się zapisać do Google Sheets: {e}")
 
+# ---------- PANEL „PORÓWNANIE ZDAŃ” — ZAWSZE NA WIERZCHU, Z PAMIĘCIĄ USTAWIEŃ ----------
+st.markdown("### 🔎 Porównanie zdań (zdanie-za-zdaniem)")
+
+mode_col, thr_col, chk_col = st.columns([1.2, 1, 1])
+with mode_col:
+    st.session_state.sent_mode = st.radio(
+        "Tryb dopasowania zdań",
+        options=["Najlepsze dopasowanie", "1:1 alignment"],
+        key="sent_mode",
+        help="‘Najlepsze’ wybiera dla każdego zdania studenta najlepiej pasujące zdanie z całej puli wzorców.\n‘1:1’ łączy zdanie i-te studenta ze zdaniem i-tym pierwszego wzorca."
+    )
+with thr_col:
+    st.session_state.low_thr = st.slider("Próg filtrowania (%)", 0, 100, value=st.session_state.low_thr, step=5,
+                                         key="low_thr",
+                                         help="Pokaż tylko zdania poniżej tego progu.")
+with chk_col:
+    st.session_state.show_only_low = st.checkbox("Pokaż tylko poniżej progu", value=st.session_state.show_only_low,
+                                                 key="show_only_low")
+
+# Dane do porównań: bierzemy „ostatnie” z sesji
+last_student = st.session_state.last_student_translation
+last_refs    = st.session_state.last_refs_list
+last_sem     = st.session_state.last_use_semantics
+
+if not last_student or not last_refs:
+    st.info("Najpierw kliknij „Oceń tłumaczenie”, aby zasilić panel danymi.")
+else:
+    if st.session_state.sent_mode == "1:1 alignment":
+        rows = sent_level_alignment_1to1(last_student, last_refs, last_sem)
+    else:
+        rows = sent_level_alignment_best(last_student, last_refs, last_sem)
+
+    table_rows = []
+    for r in rows:
+        lit_pct = int(round(r["lit"] * 100)) if r["lit"] is not None else None
+        sem_pct = int(round(r["sem"] * 100)) if r["sem"] is not None else None
+        shown = sem_pct if sem_pct is not None else lit_pct
+        if st.session_state.show_only_low and shown is not None and shown >= st.session_state.low_thr:
+            continue
+        hint = short_hint_for_sentence(lit_pct if lit_pct is not None else 0,
+                                       sem_pct if sem_pct is not None else None)
+        table_rows.append({
+            "Zdanie #": r["idx"],
+            "Zdanie studenta": r["stud"],
+            "Najlepszy wzorzec (zdanie)" if st.session_state.sent_mode != "1:1 alignment" else "Wzorzec (1:1)": r["ref"],
+            "Literalnie (%)": lit_pct,
+            "Semantycznie (%)": sem_pct if sem_pct is not None else "",
+            "Różnice (skrót)": r["diff"],
+            "Wskazówka": hint,
+        })
+
+    if not table_rows:
+        st.info("Brak zdań do wyświetlenia przy wybranych filtrach/trybie.")
+    else:
+        df_sent = pd.DataFrame(table_rows)
+
+        def color_thresholds(val):
+            if val == "" or pd.isna(val): return ""
+            try: v = float(val)
+            except: return ""
+            if v >= 80: return "background-color: #e6ffe6"
+            if v >= 60: return "background-color: #fff9cc"
+            return "background-color: #ffe6e6"
+
+        styled = df_sent.style.applymap(color_thresholds, subset=["Literalnie (%)", "Semantycznie (%)"])
+        st.dataframe(styled, use_container_width=True)
+
 # ---------- WYNIKI ZBIORCZE ----------
-ensure_results_df()
 st.markdown("---")
 st.subheader("📊 Zebrane wyniki (sesja)")
 
-df = st.session_state.results_df.copy()
+df_view = st.session_state.results_df.copy()
 
 def _pct_col(series):
     return series.apply(lambda x: "" if pd.isna(x) else f"{float(x)*100:.0f}%")
 
-if not df.empty:
-    if "Podobieństwo_literalne" in df:   df["Podobieństwo_literalne"] = _pct_col(df["Podobieństwo_literalne"])
-    if "Podobieństwo_semantyczne" in df: df["Podobieństwo_semantyczne"] = df["Podobieństwo_semantyczne"].apply(
+if not df_view.empty:
+    if "Podobieństwo_literalne" in df_view:   df_view["Podobieństwo_literalne"] = _pct_col(df_view["Podobieństwo_literalne"])
+    if "Podobieństwo_semantyczne" in df_view: df_view["Podobieństwo_semantyczne"] = df_view["Podobieństwo_semantyczne"].apply(
         lambda x: "" if pd.isna(x) else f"{float(x)*100:.0f}%"
     )
-    if "Wynik_łączny" in df:             df["Wynik_łączny"] = _pct_col(df["Wynik_łączny"])
-    if "Wynik_finalny_%" in df:
-        df["Wynik_finalny_%"] = df["Wynik_finalny_%"].apply(lambda x: "" if pd.isna(x) else f"{float(x):.0f}%")
+    if "Wynik_łączny" in df_view:             df_view["Wynik_łączny"] = _pct_col(df_view["Wynik_łączny"])
+    if "Wynik_finalny_%" in df_view:
+        df_view["Wynik_finalny_%"] = df_view["Wynik_finalny_%"].apply(lambda x: "" if pd.isna(x) else f"{float(x):.0f}%")
 
-st.dataframe(df, use_container_width=True)
+st.dataframe(df_view, use_container_width=True)
 
 if not st.session_state.results_df.empty:
     mean_pct = st.session_state.results_df["Wynik_finalny_%"].astype(float).mean()
