@@ -346,30 +346,106 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
     elif analysis_mode == "Dwujęzyczny (Źródło ↔ Student)" and not source_text.strip():
         st.error("W trybie dwujęzycznym wymagany jest tekst źródłowy.")
     else:
-        # Wzorce – przygotuj listę (0..N)
+        # --- Przygotowanie danych ---
         raw = reference_translations.replace("\r\n", "\n")
         refs_list = [blk.strip() for blk in raw.split("\n\n") if blk.strip()] if reference_translations.strip() else []
         if len(refs_list) == 1 and "\n" in refs_list[0]:
             refs_list = [r.strip() for r in raw.split("\n") if r.strip()]
 
         # --- Similarity (global) ---
-        crossling_sim = None
-        ref_sim = None
-        best_ref_lit_sim = None
+        crossling_sim = 0.0
+        ref_sim = 0.0
         best_ref_text = ""
 
         if analysis_mode == "Dwujęzyczny (Źródło ↔ Student)":
+            # semantyka źródło↔student
             crossling_sim = crossling_global_similarity(source_text, student_translation) if use_semantics else 0.0
             if include_refs_in_bilingual and refs_list:
                 ref_sim, best_ref_text = best_ref_global_similarity(student_translation, refs_list) if use_semantics else (0.0, "")
-                # Miks: mix_src_refs to waga Źródła
+                # miks: mix_src_refs = waga Źródło↔Student
                 auto_similarity = mix_src_refs * crossling_sim + (1.0 - mix_src_refs) * ref_sim
             else:
                 auto_similarity = crossling_sim
         else:
-    # Tryb wzorcowy (Student ↔ Wzorce)
-    ref_sim, best_ref_text = best_ref_global_similarity(student_translation, refs_list) if (use_semantics and refs_list) else (0.0, "")
-    lit_sim, lit_best_ref = best_literal_match(student_translation, refs_list) if refs_list else (0.0, "")
-    auto_similarity = (0.7 * ref_sim + 0.3 * lit_sim) if use_semantics else lit_sim
+            # Tryb wzorcowy (Student ↔ Wzorce)
+            ref_sim, best_ref_text = best_ref_global_similarity(student_translation, refs_list) if (use_semantics and refs_list) else (0.0, "")
+            lit_sim, lit_best_ref = best_literal_match(student_translation, refs_list) if refs_list else (0.0, "")
+            auto_similarity = (0.7 * ref_sim + 0.3 * lit_sim) if use_semantics else lit_sim
 
-               
+        # --- Ocena końcowa ---
+        sim_pct = round(auto_similarity * 100, 1)
+        faith_pct = round(faithfulness / 5 * 100, 1)
+        lang_pct = round(language_quality / 5 * 100, 1)
+        style_pct = round(style / 5 * 100, 1)
+
+        # Normalizacja wag
+        total_weight = w_auto + w_faith + w_lang + w_style
+        w_auto_n = w_auto / total_weight
+        w_faith_n = w_faith / total_weight
+        w_lang_n = w_lang / total_weight
+        w_style_n = w_style / total_weight
+
+        final_pct = round(
+            sim_pct * w_auto_n +
+            faith_pct * w_faith_n +
+            lang_pct * w_lang_n +
+            style_pct * w_style_n,
+            1
+        )
+
+        # Ocena literowa
+        if final_pct >= th_5: grade = "5.0"
+        elif final_pct >= th_45: grade = "4.5"
+        elif final_pct >= th_40: grade = "4.0"
+        elif final_pct >= th_35: grade = "3.5"
+        elif final_pct >= th_30: grade = "3.0"
+        else: grade = "2.0"
+
+        # --- Feedback ---
+        feedback_text = generate_feedback(sim_pct, faith_pct, lang_pct, style_pct)
+
+        # --- Zapis do tabeli sesji ---
+        new_row = {
+            "Data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Student": student_name,
+            "Zadanie/Plik": assignment_name,
+            "Tryb": analysis_mode,
+            "Podobieństwo_crossling": round(crossling_sim * 100, 1),
+            "Podobieństwo_wzorcowe": round(ref_sim * 100, 1),
+            "Wynik_łączny": sim_pct,
+            "Wierność(1-5)": faithfulness,
+            "Język(1-5)": language_quality,
+            "Styl(1-5)": style,
+            "W_auto": w_auto,
+            "W_wierność": w_faith,
+            "W_język": w_lang,
+            "W_styl": w_style,
+            "Mix(Źródło↔Wzorce)": round(mix_src_refs, 2) if analysis_mode.startswith("Dwujęzyczny") else None,
+            "Progi(%): 5.0": th_5,
+            "4.5": th_45,
+            "4.0": th_40,
+            "3.5": th_35,
+            "3.0": th_30,
+            "Wynik_finalny_%": final_pct,
+            "Ocena": grade
+        }
+
+        # Nadpisywanie lub dodawanie
+        df = st.session_state.get("results_df", pd.DataFrame(columns=list(new_row.keys())))
+        if overwrite_mode:
+            mask = (df["Student"] == new_row["Student"]) & (df["Zadanie/Plik"] == new_row["Zadanie/Plik"])
+            df = df[~mask]
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        st.session_state.results_df = df
+
+        # --- Wyświetlenie wyników ---
+        st.success(f"Wynik końcowy: **{final_pct}% → ocena {grade}**")
+        st.markdown("#### 💬 Komentarz automatyczny")
+        st.markdown(feedback_text)
+
+        # Zapamiętaj do panelu zdań
+        st.session_state.last_student_translation = student_translation
+        st.session_state.last_refs_list = refs_list
+        st.session_state.last_use_semantics = use_semantics
+        st.session_state.last_analysis_mode = analysis_mode
+        st.session_state.last_source_text = source_text
