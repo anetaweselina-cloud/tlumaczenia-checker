@@ -367,7 +367,9 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
             else:
                 auto_similarity = crossling_sim
         else:
-            # Tryb wzorcowy wyliczamy jak dotąd (semantyka), literalność pokażemy informacyjnie
-            ref_sim, best_ref_text = best_ref_global_similarity(student_translation, refs_list) if (use_semantics and refs_list) else (0.0, "")
-            if refs_list:
+    # Tryb wzorcowy (Student ↔ Wzorce)
+    ref_sim, best_ref_text = best_ref_global_similarity(student_translation, refs_list) if (use_semantics and refs_list) else (0.0, "")
+    lit_sim, lit_best_ref = best_literal_match(student_translation, refs_list) if refs_list else (0.0, "")
+    auto_similarity = (0.7 * ref_sim + 0.3 * lit_sim) if use_semantics else lit_sim
+
                
