@@ -449,3 +449,64 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
         st.session_state.last_use_semantics = use_semantics
         st.session_state.last_analysis_mode = analysis_mode
         st.session_state.last_source_text = source_text
+        # ---------- WYNIKI ZBIORCZE + POBIERANIE CSV ----------
+st.markdown("---")
+st.subheader("📊 Zebrane wyniki (sesja)")
+
+# Upewnij się, że tabela istnieje
+if "results_df" not in st.session_state:
+    st.session_state.results_df = pd.DataFrame(
+        columns=[
+            "Data","Student","Zadanie/Plik","Tryb",
+            "Podobieństwo_crossling","Podobieństwo_wzorcowe","Wynik_łączny",
+            "Wierność(1-5)","Język(1-5)","Styl(1-5)",
+            "W_auto","W_wierność","W_język","W_styl",
+            "Mix(Źródło↔Wzorce)","Progi(%): 5.0","4.5","4.0","3.5","3.0",
+            "Wynik_finalny_%","Ocena"
+        ]
+    )
+
+df_view = st.session_state.results_df.copy()
+
+# Zamiana wybranych kolumn na % w widoku (bez zmiany w oryginalnym DF)
+def _fmt_pct(x):
+    if pd.isna(x) or x == "":
+        return ""
+    try:
+        # te kolumny są już w %, ale mogą być floatami; dbamy o całe liczby
+        return f"{float(x):.0f}%"
+    except:
+        return x
+
+for col in ["Podobieństwo_crossling","Podobieństwo_wzorcowe","Wynik_łączny","Wynik_finalny_%"]:
+    if col in df_view.columns:
+        df_view[col] = df_view[col].apply(_fmt_pct)
+
+st.dataframe(df_view, use_container_width=True)
+
+# Średnie (tylko jeśli są dane liczbowe)
+if not st.session_state.results_df.empty:
+    # Bezpieczne rzutowanie
+    def _to_float(series):
+        return pd.to_numeric(series, errors="coerce")
+
+    mean_final = _to_float(st.session_state.results_df["Wynik_finalny_%"]).mean()
+    # Ocena jako float (np. "4.5" → 4.5)
+    mean_grade = _to_float(st.session_state.results_df["Ocena"]).mean()
+
+    st.markdown("### 📈 Średnie (sesja)")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("Średni wynik ( % )", f"{mean_final:.0f}%" if not pd.isna(mean_final) else "—")
+    with c2:
+        st.metric("Średnia ocena (PL)", f"{mean_grade:.1f}" if not pd.isna(mean_grade) else "—")
+
+# Pobieranie CSV (oryginalny DF, bez formatowania %)
+csv_data = st.session_state.results_df.to_csv(index=False).encode("utf-8")
+st.download_button(
+    "⬇️ Pobierz wyniki jako CSV",
+    data=csv_data,
+    file_name="wyniki_tlumaczen.csv",
+    mime="text/csv"
+)
+
