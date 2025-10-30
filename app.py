@@ -258,66 +258,90 @@ def short_hint_for_sentence(lit_pct: float|None, sem_pct: float|None, bilingual:
     if s >= 70: return "Drobne rozbieżności – doprecyzuj szczegóły."
     if s >= 60: return "Sprawdź sens względem odniesienia; rozważ przeformułowanie."
     return "Niska zgodność – porównaj ze źródłem/wzorcem, uprość składnię i doprecyzuj słownictwo."
-    def extract_low_similarity_examples(student_text: str,
-                                    analysis_mode: str,
-                                    source_text: str,
-                                    refs_list: list[str],
-                                    use_semantics: bool,
-                                    max_examples: int = 3,
-                                    threshold_pct: int = 70):
+def extract_low_similarity_examples(
+    student_text: str,
+    analysis_mode: str,
+    source_text: str,
+    refs_list: list[str],
+    use_semantics: bool,
+    max_examples: int = 3,
+    threshold_pct: int = 70,
+):
     """
-    Zwraca listę maks. N przykładów o najniższej zgodności:
-    [{idx, stud, ref_or_src, score_pct, hint, diff} ...]
+    Zwraca: (examples, ref_label)
+    examples = lista słowników:
+      {
+        "idx": int,                 # numer zdania studenta (1..N)
+        "stud": str,                # zdanie studenta
+        "ref_or_src": str,          # zdanie źródłowe (tryb dwujęzyczny) lub wzorcowe (tryb wzorcowy)
+        "score_pct": int,           # % zgodności (semantycznej, a gdy jej brak – literalnej)
+        "hint": str,                # krótka wskazówka
+        "diff": str,                # podgląd różnic (w trybie jednojęzykowym)
+      }
+    ref_label = "Źródło" lub "Wzorzec"
     """
     bilingual = analysis_mode.startswith("Dwujęzyczny")
-    # Z czego robimy "pool odniesienia"
+
+    # 1) Zbuduj pulę odniesienia (zdania źródła lub zdania ze wszystkich wzorców)
     if bilingual:
         pool = split_sentences(source_text)
         ref_label = "Źródło"
-        ref_text_for_1to1 = source_text
     else:
-        # łączymy wszystkie zdania z wielu wzorców
         pool = []
-        for r in refs_list:
-            pool += split_sentences(r)
+        for r in (refs_list or []):
+            pool.extend(split_sentences(r))
         ref_label = "Wzorzec"
-        ref_text_for_1to1 = refs_list[0] if refs_list else ""
 
+    # Jeśli nie mamy do czego porównywać, zwróć pustą listę + etykietę
     if not pool:
-        return []
+        return [], ref_label
 
-    # Najlepsze dopasowanie zdań (per zdanie studenta)
-    rows = sent_align_best(student_text, pool, use_semantics=use_semantics, bilingual=bilingual)
+    # 2) Dopasuj każde zdanie studenta do najlepszego zdania z puli
+    rows = sent_align_best(
+        student_text=student_text,
+        pool_ref_sents=pool,
+        use_semantics=use_semantics,
+        bilingual=bilingual,
+    )
 
-    # Dla rankingu bierzemy semantykę, a jeśli jej brak (nie powinniśmy), to literalność
-    def best_score(row):
-        if row["sem"] is not None:
+    # 3) Funkcja do pobrania najlepszego wyniku (w %)
+    def best_score_pct(row) -> float:
+        if row.get("sem") is not None:
             return float(row["sem"]) * 100.0
-        if row["lit"] is not None:
+        if row.get("lit") is not None:
             return float(row["lit"]) * 100.0
         return 0.0
 
-    # Posortuj rosnąco i odfiltruj tylko < threshold_pct
-    rows_sorted = sorted(rows, key=best_score)
-    low_rows = [r for r in rows_sorted if best_score(r) < threshold_pct]
+    # 4) Posortuj rosnąco po zgodności i odfiltruj tylko < threshold_pct
+    rows_sorted = sorted(rows, key=best_score_pct)
+    low_rows = [r for r in rows_sorted if best_score_pct(r) < float(threshold_pct)]
 
+    # 5) Zbuduj listę przykładów (maks. N)
     examples = []
     for r in low_rows[:max_examples]:
-        score = int(round(best_score(r)))
+        lit_pct = None if r.get("lit") is None else int(round(float(r["lit"]) * 100))
+        sem_pct = None if r.get("sem") is None else int(round(float(r["sem"]) * 100))
+        score = int(round(best_score_pct(r)))
+
         hint = short_hint_for_sentence(
-            None if r["lit"] is None else int(round(r["lit"] * 100)),
-            None if r["sem"] is None else int(round(r["sem"] * 100)),
-            bilingual=bilingual
+            lit_pct=lit_pct,
+            sem_pct=sem_pct,
+            bilingual=bilingual,
         )
-        examples.append({
-            "idx": r["idx"],
-            "stud": r["stud"],
-            "ref_or_src": r["ref"],
-            "score_pct": score,
-            "hint": hint,
-            "diff": r["diff"]
-        })
+
+        examples.append(
+            {
+                "idx": r["idx"],
+                "stud": r["stud"],
+                "ref_or_src": r["ref"],
+                "score_pct": score,
+                "hint": hint,
+                "diff": r["diff"],
+            }
+        )
+
     return examples, ref_label
+
 
 # ---------- SIDEBAR ----------
 with st.sidebar:
