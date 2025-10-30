@@ -538,29 +538,29 @@ examples, ref_label = extract_low_similarity_examples(
 )
 
 if examples:
-    st.markdown("#### 🔎 Przykłady zdań o najniższej zgodności (automatycznie)")
-    for ex in examples:
-        st.markdown(
-            f"**Zdanie {ex['idx']} — {ex['score_pct']}%**\n\n"
-            f"- **Student:** {ex['stud']}\n\n"
-            f"- **{ref_label}:** {ex['ref_or_src']}\n\n"
-            f"- **Wskazówka:** {ex['hint']}\n\n"
-        )
-        # Diff pokazujemy tylko, gdy to porównanie jednojęzyczne (w dwujęzycznym to mniej użyteczne)
-        if not analysis_mode.startswith("Dwujęzyczny") and ex['diff']:
-            with st.expander("Podgląd różnic (skrót)"):
-                st.code(ex['diff'])
-else:
-    st.caption("Brak zdań poniżej progu — bardzo równe dopasowanie 👏")
+        st.markdown("#### 🔎 Przykłady zdań o najniższej zgodności (automatycznie)")
+        for ex in examples:
+            st.markdown(
+                f"**Zdanie {ex['idx']} — {ex['score_pct']}%**\n\n"
+                f"- **Student:** {ex['stud']}\n\n"
+                f"- **{ref_label}:** {ex['ref_or_src']}\n\n"
+                f"- **Wskazówka:** {ex['hint']}\n\n"
+            )
+            # Diff pokazujemy tylko, gdy to porównanie jednojęzyczne
+            if not analysis_mode.startswith("Dwujęzyczny") and ex['diff']:
+                with st.expander("Podgląd różnic (skrót)"):
+                    st.code(ex['diff'])
+    else:
+        st.caption("Brak zdań poniżej progu — bardzo równe dopasowanie 👏")
 
+    # Zapamiętaj do panelu zdań (wciąż w bloku przycisku)
+    st.session_state.last_student_translation = student_translation
+    st.session_state.last_refs_list = refs_list
+    st.session_state.last_use_semantics = use_semantics
+    st.session_state.last_analysis_mode = analysis_mode
+    st.session_state.last_source_text = source_text
 
-        # Zapamiętaj do panelu zdań
-        st.session_state.last_student_translation = student_translation
-        st.session_state.last_refs_list = refs_list
-        st.session_state.last_use_semantics = use_semantics
-        st.session_state.last_analysis_mode = analysis_mode
-        st.session_state.last_source_text = source_text
-        # ---------- WYNIKI ZBIORCZE + POBIERANIE CSV ----------
+# ---------- WYNIKI ZBIORCZE + POBIERANIE CSV ----------  ← to już POZA if st.button(...): (0 spacji)
 st.markdown("---")
 st.subheader("📊 Zebrane wyniki (sesja)")
 
