@@ -258,6 +258,66 @@ def short_hint_for_sentence(lit_pct: float|None, sem_pct: float|None, bilingual:
     if s >= 70: return "Drobne rozbieżności – doprecyzuj szczegóły."
     if s >= 60: return "Sprawdź sens względem odniesienia; rozważ przeformułowanie."
     return "Niska zgodność – porównaj ze źródłem/wzorcem, uprość składnię i doprecyzuj słownictwo."
+    def extract_low_similarity_examples(student_text: str,
+                                    analysis_mode: str,
+                                    source_text: str,
+                                    refs_list: list[str],
+                                    use_semantics: bool,
+                                    max_examples: int = 3,
+                                    threshold_pct: int = 70):
+    """
+    Zwraca listę maks. N przykładów o najniższej zgodności:
+    [{idx, stud, ref_or_src, score_pct, hint, diff} ...]
+    """
+    bilingual = analysis_mode.startswith("Dwujęzyczny")
+    # Z czego robimy "pool odniesienia"
+    if bilingual:
+        pool = split_sentences(source_text)
+        ref_label = "Źródło"
+        ref_text_for_1to1 = source_text
+    else:
+        # łączymy wszystkie zdania z wielu wzorców
+        pool = []
+        for r in refs_list:
+            pool += split_sentences(r)
+        ref_label = "Wzorzec"
+        ref_text_for_1to1 = refs_list[0] if refs_list else ""
+
+    if not pool:
+        return []
+
+    # Najlepsze dopasowanie zdań (per zdanie studenta)
+    rows = sent_align_best(student_text, pool, use_semantics=use_semantics, bilingual=bilingual)
+
+    # Dla rankingu bierzemy semantykę, a jeśli jej brak (nie powinniśmy), to literalność
+    def best_score(row):
+        if row["sem"] is not None:
+            return float(row["sem"]) * 100.0
+        if row["lit"] is not None:
+            return float(row["lit"]) * 100.0
+        return 0.0
+
+    # Posortuj rosnąco i odfiltruj tylko < threshold_pct
+    rows_sorted = sorted(rows, key=best_score)
+    low_rows = [r for r in rows_sorted if best_score(r) < threshold_pct]
+
+    examples = []
+    for r in low_rows[:max_examples]:
+        score = int(round(best_score(r)))
+        hint = short_hint_for_sentence(
+            None if r["lit"] is None else int(round(r["lit"] * 100)),
+            None if r["sem"] is None else int(round(r["sem"] * 100)),
+            bilingual=bilingual
+        )
+        examples.append({
+            "idx": r["idx"],
+            "stud": r["stud"],
+            "ref_or_src": r["ref"],
+            "score_pct": score,
+            "hint": hint,
+            "diff": r["diff"]
+        })
+    return examples, ref_label
 
 # ---------- SIDEBAR ----------
 with st.sidebar:
@@ -442,6 +502,33 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
         st.success(f"Wynik końcowy: **{final_pct}% → ocena {grade}**")
         st.markdown("#### 💬 Komentarz automatyczny")
         st.markdown(feedback_text)
+        # --- Przykłady niskiej zgodności per zdanie (auto) ---
+examples, ref_label = extract_low_similarity_examples(
+    student_text=student_translation,
+    analysis_mode=analysis_mode,
+    source_text=source_text,
+    refs_list=refs_list,
+    use_semantics=use_semantics,
+    max_examples=3,
+    threshold_pct=70  # możesz zmienić na 75/80, jeśli chcesz ostrzejsze sito
+)
+
+if examples:
+    st.markdown("#### 🔎 Przykłady zdań o najniższej zgodności (automatycznie)")
+    for ex in examples:
+        st.markdown(
+            f"**Zdanie {ex['idx']} — {ex['score_pct']}%**\n\n"
+            f"- **Student:** {ex['stud']}\n\n"
+            f"- **{ref_label}:** {ex['ref_or_src']}\n\n"
+            f"- **Wskazówka:** {ex['hint']}\n\n"
+        )
+        # Diff pokazujemy tylko, gdy to porównanie jednojęzyczne (w dwujęzycznym to mniej użyteczne)
+        if not analysis_mode.startswith("Dwujęzyczny") and ex['diff']:
+            with st.expander("Podgląd różnic (skrót)"):
+                st.code(ex['diff'])
+else:
+    st.caption("Brak zdań poniżej progu — bardzo równe dopasowanie 👏")
+
 
         # Zapamiętaj do panelu zdań
         st.session_state.last_student_translation = student_translation
