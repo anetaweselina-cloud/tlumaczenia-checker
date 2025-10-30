@@ -550,7 +550,7 @@ if examples:
             if not analysis_mode.startswith("Dwujęzyczny") and ex['diff']:
                 with st.expander("Podgląd różnic (skrót)"):
                     st.code(ex['diff'])
-    else:
+else:
         st.caption("Brak zdań poniżej progu — bardzo równe dopasowanie 👏")
 
     # Zapamiętaj do panelu zdań (wciąż w bloku przycisku)
