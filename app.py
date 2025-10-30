@@ -66,7 +66,7 @@ def crossling_global_similarity(source_text: str, student_text: str) -> float:
     a, b = embed_texts([source_text, student_text])
     return cosine_sim(a, b)
 
-def best_ref_global_similarity(student_text: str, refs: list[str]) -> tuple[float,str]:
+def best_ref_global_similarity(student_text: str, refs: list[str]) -> tuple[float, str]:
     """Najlepsze semantyczne dopasowanie student↔wzorce (0..1, ref_text)."""
     if not refs:
         return 0.0, ""
@@ -252,12 +252,16 @@ def sent_align_1to1(student_text: str, ref_text: str, use_semantics: bool, bilin
         rows.append({"idx": i, "stud": ss, "ref": rs, "lit": best_lit, "sem": best_sem, "diff": diff_preview})
     return rows
 
-def short_hint_for_sentence(lit_pct: float|None, sem_pct: float|None, bilingual: bool) -> str:
+def short_hint_for_sentence(lit_pct: float | None, sem_pct: float | None, bilingual: bool) -> str:
     s = sem_pct if sem_pct is not None else (lit_pct if lit_pct is not None else 0)
-    if s >= 80: return "OK – zgodność wysoka."
-    if s >= 70: return "Drobne rozbieżności – doprecyzuj szczegóły."
-    if s >= 60: return "Sprawdź sens względem odniesienia; rozważ przeformułowanie."
+    if s >= 80:
+        return "OK – zgodność wysoka."
+    if s >= 70:
+        return "Drobne rozbieżności – doprecyzuj szczegóły."
+    if s >= 60:
+        return "Sprawdź sens względem odniesienia; rozważ przeformułowanie."
     return "Niska zgodność – porównaj ze źródłem/wzorcem, uprość składnię i doprecyzuj słownictwo."
+
 def extract_low_similarity_examples(
     student_text: str,
     analysis_mode: str,
@@ -342,7 +346,6 @@ def extract_low_similarity_examples(
 
     return examples, ref_label
 
-
 # ---------- SIDEBAR ----------
 with st.sidebar:
     st.markdown("### ⚙️ Instrukcja")
@@ -400,11 +403,17 @@ with col_right:
     include_refs_in_bilingual = False
     mix_src_refs = 1.0
     if analysis_mode == "Dwujęzyczny (Źródło ↔ Student)":
-        include_refs_in_bilingual = st.checkbox("Uwzględnij wzorce dodatkowo (student↔wzorce)", value=False,
-                                                help="Jeśli zaznaczysz i podasz wzorce, Similarity będzie mieszanką: Źródło↔Student oraz Student↔Wzorce.")
+        include_refs_in_bilingual = st.checkbox(
+            "Uwzględnij wzorce dodatkowo (student↔wzorce)",
+            value=False,
+            help="Jeśli zaznaczysz i podasz wzorce, Similarity będzie mieszanką: Źródło↔Student oraz Student↔Wzorce."
+        )
         if include_refs_in_bilingual:
-            mix_src_refs = st.slider("Mix Similarity: Źródło (lewo) ↔ Wzorce (prawo)", 0.0, 1.0, 0.7, 0.05,
-                                     help="0.7 = 70% wagi dla Źródło↔Student, 30% dla Student↔Wzorce")
+            mix_src_refs = st.slider(
+                "Mix Similarity: Źródło (lewo) ↔ Wzorce (prawo)",
+                0.0, 1.0, 0.7, 0.05,
+                help="0.7 = 70% wagi dla Źródło↔Student, 30% dla Student↔Wzorce"
+            )
 
     st.subheader("Wagi komponentów")
     w_auto = st.number_input("Waga: Similarity", min_value=0.0, value=0.40, step=0.05)
@@ -416,11 +425,16 @@ with col_right:
 # ---------- SKALA OCEN ----------
 st.markdown("### 🧮 Skala ocen (progi % → ocena PL)")
 cols = st.columns(5)
-with cols[0]: th_5  = st.number_input("5.0 od (%)", 0.0, 100.0, 90.0, 1.0)
-with cols[1]: th_45 = st.number_input("4.5 od (%)", 0.0, 100.0, 80.0, 1.0)
-with cols[2]: th_40 = st.number_input("4.0 od (%)", 0.0, 100.0, 70.0, 1.0)
-with cols[3]: th_35 = st.number_input("3.5 od (%)", 0.0, 100.0, 60.0, 1.0)
-with cols[4]: th_30 = st.number_input("3.0 od (%)", 0.0, 100.0, 50.0, 1.0)
+with cols[0]:
+    th_5 = st.number_input("5.0 od (%)", 0.0, 100.0, 90.0, 1.0)
+with cols[1]:
+    th_45 = st.number_input("4.5 od (%)", 0.0, 100.0, 80.0, 1.0)
+with cols[2]:
+    th_40 = st.number_input("4.0 od (%)", 0.0, 100.0, 70.0, 1.0)
+with cols[3]:
+    th_35 = st.number_input("3.5 od (%)", 0.0, 100.0, 60.0, 1.0)
+with cols[4]:
+    th_30 = st.number_input("3.0 od (%)", 0.0, 100.0, 50.0, 1.0)
 st.caption("Upewnij się, że progi maleją: 5.0 ≥ 4.5 ≥ 4.0 ≥ 3.5 ≥ 3.0")
 
 # ---------- PRZYCISK: ANALIZA + ZAPAMIĘTANIE ----------
@@ -478,12 +492,18 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
         )
 
         # Ocena literowa
-        if final_pct >= th_5: grade = "5.0"
-        elif final_pct >= th_45: grade = "4.5"
-        elif final_pct >= th_40: grade = "4.0"
-        elif final_pct >= th_35: grade = "3.5"
-        elif final_pct >= th_30: grade = "3.0"
-        else: grade = "2.0"
+        if final_pct >= th_5:
+            grade = "5.0"
+        elif final_pct >= th_45:
+            grade = "4.5"
+        elif final_pct >= th_40:
+            grade = "4.0"
+        elif final_pct >= th_35:
+            grade = "3.5"
+        elif final_pct >= th_30:
+            grade = "3.0"
+        else:
+            grade = "2.0"
 
         # --- Feedback ---
         feedback_text = generate_feedback(sim_pct, faith_pct, lang_pct, style_pct)
@@ -526,41 +546,42 @@ if st.button("🔎 Oceń tłumaczenie", type="primary"):
         st.success(f"Wynik końcowy: **{final_pct}% → ocena {grade}**")
         st.markdown("#### 💬 Komentarz automatyczny")
         st.markdown(feedback_text)
+
         # --- Przykłady niskiej zgodności per zdanie (auto) ---
-examples, ref_label = extract_low_similarity_examples(
-    student_text=student_translation,
-    analysis_mode=analysis_mode,
-    source_text=source_text,
-    refs_list=refs_list,
-    use_semantics=use_semantics,
-    max_examples=3,
-    threshold_pct=70  # możesz zmienić na 75/80, jeśli chcesz ostrzejsze sito
-)
+        examples, ref_label = extract_low_similarity_examples(
+            student_text=student_translation,
+            analysis_mode=analysis_mode,
+            source_text=source_text,
+            refs_list=refs_list,
+            use_semantics=use_semantics,
+            max_examples=3,
+            threshold_pct=70  # możesz zmienić na 75/80, jeśli chcesz ostrzejsze sito
+        )
 
-if examples:
-        st.markdown("#### 🔎 Przykłady zdań o najniższej zgodności (automatycznie)")
-        for ex in examples:
-            st.markdown(
-                f"**Zdanie {ex['idx']} — {ex['score_pct']}%**\n\n"
-                f"- **Student:** {ex['stud']}\n\n"
-                f"- **{ref_label}:** {ex['ref_or_src']}\n\n"
-                f"- **Wskazówka:** {ex['hint']}\n\n"
-            )
-            # Diff pokazujemy tylko, gdy to porównanie jednojęzyczne
-            if not analysis_mode.startswith("Dwujęzyczny") and ex['diff']:
-                with st.expander("Podgląd różnic (skrót)"):
-                    st.code(ex['diff'])
-else:
-        st.caption("Brak zdań poniżej progu — bardzo równe dopasowanie 👏")
+        if examples:
+            st.markdown("#### 🔎 Przykłady zdań o najniższej zgodności (automatycznie)")
+            for ex in examples:
+                st.markdown(
+                    f"**Zdanie {ex['idx']} — {ex['score_pct']}%**\n\n"
+                    f"- **Student:** {ex['stud']}\n\n"
+                    f"- **{ref_label}:** {ex['ref_or_src']}\n\n"
+                    f"- **Wskazówka:** {ex['hint']}\n\n"
+                )
+                # Diff pokazujemy tylko, gdy to porównanie jednojęzyczne
+                if not analysis_mode.startswith("Dwujęzyczny") and ex['diff']:
+                    with st.expander("Podgląd różnic (skrót)"):
+                        st.code(ex['diff'])
+        else:
+            st.caption("Brak zdań poniżej progu — bardzo równe dopasowanie 👏")
 
-    # Zapamiętaj do panelu zdań (wciąż w bloku przycisku)
-    st.session_state.last_student_translation = student_translation
-    st.session_state.last_refs_list = refs_list
-    st.session_state.last_use_semantics = use_semantics
-    st.session_state.last_analysis_mode = analysis_mode
-    st.session_state.last_source_text = source_text
+        # Zapamiętaj do panelu zdań (wciąż w bloku przycisku)
+        st.session_state.last_student_translation = student_translation
+        st.session_state.last_refs_list = refs_list
+        st.session_state.last_use_semantics = use_semantics
+        st.session_state.last_analysis_mode = analysis_mode
+        st.session_state.last_source_text = source_text
 
-# ---------- WYNIKI ZBIORCZE + POBIERANIE CSV ----------  ← to już POZA if st.button(...): (0 spacji)
+# ---------- WYNIKI ZBIORCZE + POBIERANIE CSV ----------
 st.markdown("---")
 st.subheader("📊 Zebrane wyniki (sesja)")
 
@@ -620,4 +641,3 @@ st.download_button(
     file_name="wyniki_tlumaczen.csv",
     mime="text/csv"
 )
-
